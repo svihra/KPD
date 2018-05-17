@@ -17,6 +17,7 @@ from time import sleep
 device = "/dev/ttyUSB0"
 bps    = 9600
 
+#Class for slider with printed name and value in a box
 class SliderBox(QGroupBox):
     value_changed = pyqtSignal(int)
     
@@ -50,6 +51,7 @@ class SliderBox(QGroupBox):
         
         self.connect(self.slider, SIGNAL('valueChanged(int)'), self.send_value)
         
+# Class for separate threaded data reading
 class ArduinoThread(QThread):
     value = pyqtSignal('PyQt_PyObject','PyQt_PyObject')
     text = pyqtSignal('QString')
@@ -66,6 +68,7 @@ class ArduinoThread(QThread):
     def reset(self):
         self.counter = 0
         
+    #function checking if received value is valid
     def isint(self,value):
         try:
             int(value)
@@ -83,6 +86,7 @@ class ArduinoThread(QThread):
                 index = index + 1
         return res
 
+    # way to stop the run
     @pyqtSlot()
     def stop_thread(self):
         self.active = False
@@ -95,20 +99,25 @@ class ArduinoThread(QThread):
         self.counter = 0
         self.active = True
         
+    # running instance of the thread
     @pyqtSlot()
     def run(self):
         while self.active:
             self.text.emit("reading intro for frame " + str(self.counter))
+            # waiting for the empty line
             self.data = self.arduino.readline()[:-3]
             if (len(self.data) == 0):
+                #reading filtered data
                 self.data = self.arduino.readline()[:-3]
                 self.converted = self.data.split(",")
                 self.result = self.convert(self.converted, self.result)
                 
+                #reading raw data
                 self.data = self.arduino.readline()[:-3]
                 self.converted = self.data.split(",")
                 self.resultRaw = self.convert(self.converted, self.resultRaw)
                 
+                #sending counter name and data
                 self.value.emit(self.result, self.resultRaw)
                 self.text.emit("sending all data")
                 self.counter = self.counter + 1
@@ -117,6 +126,7 @@ class ArduinoThread(QThread):
     def finish(self):
         self.finished.emit()
 
+#main window class
 class AppForm(QMainWindow):
     change_bins = pyqtSignal(int,int)
     reset = pyqtSignal()
@@ -126,14 +136,14 @@ class AppForm(QMainWindow):
         QMainWindow.__init__(self, parent)
         self.setWindowTitle('Spectrogram')
         
-        #self.mu, self.sigma = 100, 15
         self.bins = 100
         self.disc = 0
         self.maxCount = 100000
         self.count = 0
         self.process_data = True
         self.counter = 0
-        
+
+        # init plotted data
         self.data = np.zeros(1024)
         self.dataRaw = np.zeros(1024)
         self.channels = np.arange(1024)
@@ -146,7 +156,7 @@ class AppForm(QMainWindow):
         self.create_main_frame()
         self.create_status_bar()
         
-        # init data taking
+        # init data taking on thread
         self.arduino = ArduinoThread(self)
         self.connect(self.arduino,SIGNAL('value(PyQt_PyObject,PyQt_PyObject)'),self.get_data)
         self.connect(self.arduino,SIGNAL('text(QString)'),self.printer)
@@ -158,6 +168,7 @@ class AppForm(QMainWindow):
     def __exit__(self, exc_type, exc_value, traceback):
         print("exiting")
         
+    #saving txt or png files
     def save_plot(self):
         file_choices = "TXT (*.txt);;PNG (*.png)|*.png"
         
@@ -170,6 +181,7 @@ class AppForm(QMainWindow):
         else:
             np.savetxt(path,np.c_[self.data, self.dataRaw], fmt='%d')
 
+    #loading txt files
     def load_plot(self):
         file_choices = "TXT (*.txt)"
         
@@ -178,15 +190,18 @@ class AppForm(QMainWindow):
                         file_choices))
         self.data, self.dataRaw = np.loadtxt(path, delimiter=' ',dtype = int, unpack=True)
         self.on_draw()
-            
+    
+    #printing text from thread
     @pyqtSlot('QString')
     def printer(self,text):
         print(text)
         
+    #setting run number from thread
     @pyqtSlot(int)
     def set_title(self,value):
         self.counter = value
     
+    #receiving data from thread
     @pyqtSlot('PyQt_PyObject','PyQt_PyObject')
     def get_data(self,data,dataRaw):
         self.data = data
@@ -194,11 +209,12 @@ class AppForm(QMainWindow):
         
         self.on_draw()
     
+    #plotting data
     def on_draw(self):
-        """ Redraws the figure """        
         self.axes.clear()
         self.axes.grid(self.grid_cb.isChecked())
         
+        #changing logy or normaly axes
         ymin = 0
         if self.logy_cb.isChecked():
             self.axes.semilogy(self.channels,self.data, label='filtered')
@@ -210,17 +226,20 @@ class AppForm(QMainWindow):
             if self.raw_cb.isChecked():
                 self.axes.plot(self.channels,self.dataRaw, label='raw')
             
+        #changing x axis range
         self.axes.set_xlim(self.minVal, self.maxVal)
         if self.raw_cb.isChecked():
             self.axes.set_ylim(ymin,np.amax(self.dataRaw[self.minVal:self.maxVal]))
         else:
             self.axes.set_ylim(ymin,np.amax(self.data[self.minVal:self.maxVal]))
             
+        #legend and title
         self.legend = self.axes.legend(loc='upper right')
         self.axes.set_title("Run " + str(self.counter))
         
         self.canvas.draw()
-        
+    
+    #setting min range using slider
     def set_range_min(self, minVal):
         if minVal > self.maxVal:
             self.slider_min.set_value(self.maxVal)
@@ -230,6 +249,7 @@ class AppForm(QMainWindow):
             
         self.on_draw()
         
+    #setting max range using slider
     def set_range_max(self, maxVal):
         if maxVal < self.minVal:
             self.slider_max.set_value(self.minVal)
@@ -238,7 +258,8 @@ class AppForm(QMainWindow):
             self.maxVal = maxVal
             
         self.on_draw()
-        
+    
+    #restarting acquisition
     def restart_acqui(self):
         print("Restarting the run")
         self.status_text.setText("Continually receiving data")
@@ -247,6 +268,7 @@ class AppForm(QMainWindow):
         self.arduino.restart()
         self.arduino.start()
 
+    #stopping acquisition
     @pyqtSlot()
     def stop_acqui(self):
         print("Stopping the run")
@@ -261,6 +283,7 @@ class AppForm(QMainWindow):
         self.stop_acqui()
         self.close()
     
+    #defining main frame with canvas and buttons
     def create_main_frame(self):
         self.main_frame = QWidget()
         
@@ -325,10 +348,12 @@ class AppForm(QMainWindow):
         self.main_frame.setLayout(vbox)
         self.setCentralWidget(self.main_frame)
     
+    #defininf status bar
     def create_status_bar(self):
         self.status_text = QLabel("Waiting for start")
         self.statusBar().addWidget(self.status_text, 1)
         
+    #defining menu actions
     def create_menu(self):        
         self.file_menu = self.menuBar().addMenu("&File")
         
